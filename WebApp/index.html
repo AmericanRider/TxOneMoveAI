@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TxOneMove</title>
     <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="./icon/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="./icon/icon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="./icon/icon-16x16.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="TxOneMove">
+    <meta name="theme-color" content="#070A10">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet-control-compass/dist/leaflet-compass.min.css" />
@@ -108,6 +115,49 @@
         .vario-btn.active{
         background: linear-gradient(135deg, var(--accent), var(--accent-2));
         border-color: rgba(255,255,255,.2);
+        }
+
+        #installBtn{
+        display: none;
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        border: 1px solid rgba(0,212,255,.35);
+        background: rgba(0,212,255,.12);
+        color: var(--accent-2);
+        cursor: pointer;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        transition: all .2s ease;
+        padding: 0;
+        }
+
+        #installBtn:hover{
+        background: rgba(0,212,255,.22);
+        border-color: rgba(0,212,255,.6);
+        filter: brightness(1.1);
+        transform: translateY(-1px);
+        }
+
+        #swUpdateBanner{
+        display: none;
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: linear-gradient(135deg, rgba(0,212,255,.18), rgba(255,90,42,.14));
+        border: 1px solid rgba(0,212,255,.35);
+        border-radius: var(--radius);
+        padding: 14px 20px;
+        z-index: 999;
+        backdrop-filter: blur(12px);
+        display: none;
+        align-items: center;
+        gap: 14px;
+        color: var(--text);
+        font-size: 14px;
+        box-shadow: var(--shadow);
         }
 
         .vario-info{
@@ -427,7 +477,7 @@
         text-transform: uppercase;
         }
     </style>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><circle cx='96' cy='96' r='90' fill='%232196F3'/><path d='M96,40 L130,140 L96,110 L62,140 Z' fill='white'/></svg>">
+
 </head>
 <body>
     <header class="topbar">
@@ -441,6 +491,7 @@
             </div>
             <!-- VARIO CONTROLS IN TOPBAR -->
             <div class="vario-controls">
+                <button id="installBtn" title="App installieren" onclick="installPWA()" style="display:none;">⬇️</button>
                 <button class="vario-btn" id="varioToggleBtn" onclick="toggleVario()" title="Vario abspielen/pausieren">🔊</button>
                 <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="20" onchange="setVolume()" style="width: 80px; height: 24px; accent-color: var(--accent); cursor: pointer; margin: 0 8px;">
                 <div class="vario-info">
@@ -450,6 +501,13 @@
             </div>
         </div>
     </header>
+
+    <!-- SW Update Banner -->
+    <div id="swUpdateBanner">
+        <span>🔄 Neue Version verfügbar</span>
+        <button onclick="applyUpdate()" style="padding: 8px 14px; font-size: 13px;">Aktualisieren</button>
+        <button onclick="document.getElementById('swUpdateBanner').style.display='none'" style="padding: 8px 14px; font-size: 13px; background: rgba(255,255,255,.08);">Später</button>
+    </div>
 
     <div class="container">
         <!-- Verbindung und Status -->
@@ -1074,6 +1132,74 @@
             iconAnchor: [14, 18],  // Mitte des Pfeils (nicht Spitze!)
             popupAnchor: [0, -18]
         });
+
+        // ============ PWA: SERVICE WORKER ============
+        let swRegistration = null;
+        let newWorker = null;
+        let deferredInstallPrompt = null;
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', async () => {
+                try {
+                    swRegistration = await navigator.serviceWorker.register('./sw.js', { scope: './' });
+                    addLog('✓ Service Worker registriert');
+
+                    // Auf neue Version prüfen
+                    swRegistration.addEventListener('updatefound', () => {
+                        newWorker = swRegistration.installing;
+                        newWorker.addEventListener('statechange', () => {
+                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                // Neue Version bereit – Banner zeigen
+                                const banner = document.getElementById('swUpdateBanner');
+                                banner.style.display = 'flex';
+                                addLog('🔄 Update verfügbar – Banner angezeigt');
+                            }
+                        });
+                    });
+
+                    // Wenn der SW übernimmt, Seite neu laden
+                    navigator.serviceWorker.addEventListener('controllerchange', () => {
+                        window.location.reload();
+                    });
+
+                } catch (err) {
+                    addLog('⚠️ SW-Registrierung fehlgeschlagen: ' + err.message);
+                }
+            });
+        }
+
+        function applyUpdate() {
+            if (newWorker) {
+                newWorker.postMessage({ type: 'SKIP_WAITING' });
+            }
+            document.getElementById('swUpdateBanner').style.display = 'none';
+        }
+
+        // ============ PWA: INSTALL BUTTON ============
+        window.addEventListener('beforeinstallprompt', e => {
+            e.preventDefault();
+            deferredInstallPrompt = e;
+            const btn = document.getElementById('installBtn');
+            btn.style.display = 'flex';
+            addLog('📲 App kann installiert werden');
+        });
+
+        window.addEventListener('appinstalled', () => {
+            deferredInstallPrompt = null;
+            document.getElementById('installBtn').style.display = 'none';
+            addLog('✓ App erfolgreich installiert!');
+        });
+
+        async function installPWA() {
+            if (!deferredInstallPrompt) return;
+            deferredInstallPrompt.prompt();
+            const { outcome } = await deferredInstallPrompt.userChoice;
+            addLog('📲 Install-Entscheidung: ' + outcome);
+            if (outcome === 'accepted') {
+                deferredInstallPrompt = null;
+                document.getElementById('installBtn').style.display = 'none';
+            }
+        }
 
         window.addEventListener('load', () => {
             initMap();
